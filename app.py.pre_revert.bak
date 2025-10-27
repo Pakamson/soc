@@ -1,0 +1,646 @@
+import os
+import json
+import csv
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from io import StringIO
+
+from flask import Flask, request, jsonify, render_template, make_response
+import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import DictCursor
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+
+
+def parse_date(d):
+    """Parse a date from string or datetime object."""
+    if not d:
+        return None
+    if isinstance(d, str):
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").date()
+        except Exception:
+            return None
+    if isinstance(d, datetime):
+        return d.date()
+    return None
+
+
+def get_db_conn():
+    """Create and return a new DB connection using environment variables."""
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "inventory_db")
+    db_user = os.getenv("DB_USER", "postgres")
+    db_password = os.getenv("DB_PASSWORD", "P@ssw0rd")
+
+    conn = psycopg2.connect(
+        host=db_host,
+        port=db_port,
+        dbname=db_name,
+        user=db_user,
+        password=db_password,
+    )
+    return conn
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/bulk-import")
+def bulk_import():
+    return render_template("bulk_import.html")
+
+
+@app.route("/advanced-search")
+def advanced_search():
+    """Advanced search with multiple filters."""
+    # Get all filter parameters
+    params = {
+        'record_date_start': request.args.get('record_date_start'),
+        'record_date_end': request.args.get('record_date_end'),
+        'purchase_date_start': request.args.get('purchase_date_start'),
+        'purchase_date_end': request.args.get('purchase_date_end'),
+        'maintenance_date_start': request.args.get('maintenance_date_start'),
+        'maintenance_date_end': request.args.get('maintenance_date_end'),
+        'price_min': request.args.get('price_min'),
+        'price_max': request.args.get('price_max'),
+        'label': request.args.get('label', '').strip(),
+        'type': request.args.get('type', '').strip(),
+        'brand': request.args.get('brand', '').strip(),
+        'model_no': request.args.get('model_no', '').strip(),
+        'serial_no': request.args.get('serial_no', '').strip(),
+        'location': request.args.get('location', '').strip(),
+        'location_2': request.args.get('location_2', '').strip(),
+        'invoice_no': request.args.get('invoice_no', '').strip(),
+        'status': request.args.get('status', '').strip(),
+    }
+
+    search_performed = any(v for v in params.values() if v)
+    items = []
+
+    if search_performed:
+        try:
+            conn = get_db_conn()
+            cur = conn.cursor(cursor_factory=DictCursor)
+            
+            # Build dynamic query based on provided filters
+            conditions = []
+            query_params = []
+            
+            # Date range conditions
+            if params['record_date_start']:
+                conditions.append("record_date >= %s")
+                query_params.append(params['record_date_start'])
+            if params['record_date_end']:
+                conditions.append("record_date <= %s")
+                query_params.append(params['record_date_end'])
+                
+            if params['purchase_date_start']:
+                conditions.append("purchase_date >= %s")
+                query_params.append(params['purchase_date_start'])
+            if params['purchase_date_end']:
+                conditions.append("purchase_date <= %s")
+                query_params.append(params['purchase_date_end'])
+                
+            if params['maintenance_date_start']:
+                conditions.append("maintenance_end_date >= %s")
+                query_params.append(params['maintenance_date_start'])
+            if params['maintenance_date_end']:
+                conditions.append("maintenance_end_date <= %s")
+                query_params.append(params['maintenance_date_end'])
+            
+            # Price range conditions
+            if params['price_min']:
+                conditions.append("price >= %s")
+                query_params.append(Decimal(params['price_min']))
+            if params['price_max']:
+                conditions.append("price <= %s")
+                query_params.append(Decimal(params['price_max']))
+            
+            # Text search conditions (case-insensitive prefix match)
+            text_fields = ['label', 'type', 'brand', 'model_no', 'serial_no', 
+                         'location', 'location_2', 'invoice_no', 'status']
+            
+            for field in text_fields:
+                if params[field]:
+                    conditions.append(f"{field} ILIKE %s")
+                    query_params.append(f"{params[field]}%")
+            
+            # Construct and execute query
+            query = "SELECT * FROM soc_inventory"
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            query += " ORDER BY label, type, brand"
+            
+            cur.execute(query, query_params)
+            items = [dict(row) for row in cur.fetchall()]
+            
+            cur.close()
+            conn.close()
+
+        except Exception as e:
+            print("Error in advanced search:", e)
+            return render_template("advanced_search.html", 
+                                error=str(e), 
+                                items=[], 
+                                search_performed=search_performed)
+
+    return render_template("advanced_search.html", 
+                         items=items, 
+                         search_performed=search_performed)
+
+
+@app.route("/api/items/import-csv", methods=["POST"])
+def import_csv():
+    """Import inventory items from a CSV file."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files['file']
+        if not file or not file.filename.lower().endswith('.csv'):
+            return jsonify({"error": "Invalid file. Please provide a CSV file"}), 400
+
+        # Read the CSV file using utf-8-sig to strip BOM if present
+        raw = file.stream.read()
+        try:
+            text = raw.decode('utf-8-sig')
+        except Exception:
+            # Fallback to default utf-8
+            text = raw.decode('utf-8', errors='replace')
+
+        stream = StringIO(text, newline=None)
+        reader = csv.DictReader(stream)
+
+        # Normalize and validate headers (strip whitespace and lower-case)
+        # Updated schema: adapt expected headers to the new soc_inventory columns
+        expected_headers = {
+            'date', 'cp_number', 'project_code', 'sort_code', 'department',
+            'lt1', 'lt2', 'user_name', 'port', 'item', 'usb_permission', 'os',
+            'mac', 'ip', 'status', 'cpu', 'ram', 'hd', 'soft1', 'soft2', 'soft3',
+            'unlabeled', 'to_be_confirm', 'company_code', 'description_cpu',
+            'description_hdd_gb', 'description_ram_mb', 'amount', 'prn_no',
+            'invoice_date', 'supplier_name', 'remark', 'description'
+        }
+
+        if not reader.fieldnames:
+            return jsonify({"error": "CSV file has no header row"}), 400
+
+        normalized_fieldnames = [h.strip().lower() for h in reader.fieldnames if h]
+        headers_set = set(normalized_fieldnames)
+
+        if not expected_headers.issubset(headers_set):
+            missing = expected_headers - headers_set
+            return jsonify({"error": f"Missing required columns: {', '.join(sorted(missing))}"}), 400
+
+        conn = get_db_conn()
+        cur = conn.cursor()
+        imported = 0
+
+        for raw_row in reader:
+            try:
+                # Build a normalized-row mapping so we can reference lowercased keys
+                row = { (k.strip().lower() if k else ''): (v.strip() if isinstance(v, str) else v)
+                        for k, v in raw_row.items() }
+
+                # Parse dates and amount
+                date_val = parse_date(row.get('date'))
+                invoice_date = parse_date(row.get('invoice_date'))
+
+                amount = row.get('amount')
+                if amount in (None, ""):
+                    amount_val = None
+                else:
+                    try:
+                        amount_val = Decimal(str(amount))
+                    except (InvalidOperation, ValueError):
+                        print(f"Skipping row with invalid amount: {amount}")
+                        continue
+
+                # NOTE: The new schema doesn't declare a primary key in the provided DDL.
+                # We'll assume `cp_number` is a unique identifier suitable for upserts. If
+                # your DB doesn't have a unique constraint on `cp_number`, the ON CONFLICT
+                # will fail — add a UNIQUE(cp_number) constraint or change the conflict
+                # target accordingly.
+                insert_q = sql.SQL("""
+                    INSERT INTO soc_inventory (
+                        date, cp_number, project_code, sort_code, department,
+                        lt1, lt2, user_name, port, item, usb_permission, os,
+                        mac, ip, status, cpu, ram, hd, soft1, soft2, soft3,
+                        unlabeled, to_be_confirm, company_code, description_cpu,
+                        description_hdd_gb, description_ram_mb, amount, prn_no,
+                        invoice_date, supplier_name, remark, description
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (cp_number) DO UPDATE SET
+                        date = EXCLUDED.date,
+                        project_code = EXCLUDED.project_code,
+                        sort_code = EXCLUDED.sort_code,
+                        department = EXCLUDED.department,
+                        lt1 = EXCLUDED.lt1,
+                        lt2 = EXCLUDED.lt2,
+                        user_name = EXCLUDED.user_name,
+                        port = EXCLUDED.port,
+                        item = EXCLUDED.item,
+                        usb_permission = EXCLUDED.usb_permission,
+                        os = EXCLUDED.os,
+                        mac = EXCLUDED.mac,
+                        ip = EXCLUDED.ip,
+                        status = EXCLUDED.status,
+                        cpu = EXCLUDED.cpu,
+                        ram = EXCLUDED.ram,
+                        hd = EXCLUDED.hd,
+                        soft1 = EXCLUDED.soft1,
+                        soft2 = EXCLUDED.soft2,
+                        soft3 = EXCLUDED.soft3,
+                        unlabeled = EXCLUDED.unlabeled,
+                        to_be_confirm = EXCLUDED.to_be_confirm,
+                        company_code = EXCLUDED.company_code,
+                        description_cpu = EXCLUDED.description_cpu,
+                        description_hdd_gb = EXCLUDED.description_hdd_gb,
+                        description_ram_mb = EXCLUDED.description_ram_mb,
+                        amount = EXCLUDED.amount,
+                        prn_no = EXCLUDED.prn_no,
+                        invoice_date = EXCLUDED.invoice_date,
+                        supplier_name = EXCLUDED.supplier_name,
+                        remark = EXCLUDED.remark,
+                        description = EXCLUDED.description
+                """)
+
+                cur.execute(insert_q, (
+                    date_val,
+                    row.get('cp_number'),
+                    row.get('project_code'),
+                    row.get('sort_code'),
+                    row.get('department'),
+                    row.get('lt1'),
+                    row.get('lt2'),
+                    row.get('user_name'),
+                    row.get('port'),
+                    row.get('item'),
+                    row.get('usb_permission'),
+                    row.get('os'),
+                    row.get('mac'),
+                    row.get('ip'),
+                    row.get('status'),
+                    row.get('cpu'),
+                    row.get('ram'),
+                    row.get('hd'),
+                    row.get('soft1'),
+                    row.get('soft2'),
+                    row.get('soft3'),
+                    row.get('unlabeled'),
+                    row.get('to_be_confirm'),
+                    row.get('company_code'),
+                    row.get('description_cpu'),
+                    row.get('description_hdd_gb'),
+                    row.get('description_ram_mb'),
+                    amount_val,
+                    row.get('prn_no'),
+                    invoice_date,
+                    row.get('supplier_name'),
+                    row.get('remark'),
+                    row.get('description')
+                ))
+                imported += 1
+
+            except Exception as e:
+                print(f"Error importing row: {e}")
+                continue
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"message": "CSV import completed successfully", "imported": imported}), 200
+
+    except Exception as e:
+        print("Error importing CSV:", e)
+        return jsonify({"error": "Failed to import CSV", "details": str(e)}), 500
+
+
+@app.route("/api/items/export-csv")
+def export_csv():
+    """Export search results as CSV."""
+    search_query = request.args.get('q', '').strip()
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor(cursor_factory=DictCursor)
+        
+        if search_query:
+            # Use the same search logic as the search route
+            search_sql = sql.SQL("""
+                SELECT *
+                FROM soc_inventory
+                WHERE label ILIKE %s 
+                   OR type ILIKE %s
+                   OR brand ILIKE %s
+                   OR model_no ILIKE %s
+                   OR serial_no ILIKE %s
+                   OR location ILIKE %s
+                   OR location_2 ILIKE %s
+                   OR status ILIKE %s
+                ORDER BY label, type, brand
+            """)
+            search_pattern = f"{search_query}%"
+            cur.execute(search_sql, [search_pattern] * 8)
+        else:
+            # If no search query, export all items
+            cur.execute("SELECT * FROM soc_inventory ORDER BY label, type, brand")
+        
+        # Get all rows
+        items = [dict(row) for row in cur.fetchall()]
+        
+        cur.close()
+        conn.close()
+
+        # Create CSV in memory
+        output = StringIO()
+        if items:
+            # Use the first item's keys as CSV headers
+            headers = list(items[0].keys())
+            writer = csv.DictWriter(output, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(items)
+
+        # Create the response
+        response = make_response(output.getvalue())
+        response.headers["Content-Disposition"] = f"attachment; filename=inventory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        response.headers["Content-type"] = "text/csv"
+        return response
+
+    except Exception as e:
+        print("Error exporting CSV:", e)
+        return jsonify({"error": "Failed to export CSV", "details": str(e)}), 500
+
+
+@app.route("/search")
+def search():
+    """Search inventory items by prefix match on multiple columns."""
+    search_query = request.args.get('q', '').strip()
+    items = []
+    search_performed = bool(search_query)  # True if search was attempted
+
+    if search_query:
+        try:
+            conn = get_db_conn()
+            cur = conn.cursor(cursor_factory=DictCursor)
+            
+            # Build a query that searches across multiple columns with prefix matching
+            search_sql = sql.SQL("""
+                SELECT *
+                FROM soc_inventory
+                WHERE label ILIKE %s 
+                   OR type ILIKE %s
+                   OR brand ILIKE %s
+                   OR model_no ILIKE %s
+                   OR serial_no ILIKE %s
+                   OR location ILIKE %s
+                   OR location_2 ILIKE %s
+                   OR status ILIKE %s
+                ORDER BY label, type, brand
+                LIMIT 100
+            """)
+            
+            # Add % after the search term for prefix matching
+            search_pattern = f"{search_query}%"
+            cur.execute(search_sql, [search_pattern] * 8)
+            
+            items = [dict(row) for row in cur.fetchall()]
+            
+            cur.close()
+            conn.close()
+
+        except Exception as e:
+            print("Error searching inventory:", e)
+            return render_template("search.html", error=str(e), items=[], search_performed=search_performed)
+
+    return render_template("search.html", items=items, search_performed=search_performed)
+
+
+@app.route("/api/items/<int:item_id>", methods=["PUT"])
+def update_item(item_id):
+    """Update an existing inventory item."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Expected JSON body"}), 400
+
+        # Extract and validate fields as in create_item
+        record_date = parse_date(data.get("record_date"))
+        label = data.get("label")
+        item_type = data.get("type")
+        brand = data.get("brand")
+        model_no = data.get("model_no")
+        serial_no = data.get("serial_no")
+        location = data.get("location")
+        location_2 = data.get("location_2")
+        invoice_no = data.get("invoice_no")
+        purchase_date = parse_date(data.get("purchase_date"))
+        maintenance_end_date = parse_date(data.get("maintenance_end_date"))
+        
+        # Handle price
+        price = data.get("price")
+        if price in (None, ""):
+            price_val = None
+        else:
+            try:
+                price_val = Decimal(str(price))
+            except (InvalidOperation, ValueError):
+                return jsonify({"error": "'price' must be a number"}), 400
+        
+        status = data.get("status")
+
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        update_q = sql.SQL("""
+            UPDATE soc_inventory SET
+                record_date = %s,
+                label = %s,
+                type = %s,
+                brand = %s,
+                model_no = %s,
+                serial_no = %s,
+                location = %s,
+                location_2 = %s,
+                invoice_no = %s,
+                purchase_date = %s,
+                price = %s,
+                maintenance_end_date = %s,
+                status = %s
+            WHERE serial_no = %s
+            RETURNING serial_no
+        """)
+
+        cur.execute(update_q, (
+            record_date, label, item_type, brand, model_no, serial_no,
+            location, location_2, invoice_no, purchase_date, price_val,
+            maintenance_end_date, status, serial_no
+        ))
+        
+        updated = cur.fetchone()
+        if not updated:
+            conn.rollback()
+            return jsonify({"error": "Item not found"}), 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "message": "Updated successfully",
+            "record_date": record_date.isoformat() if record_date else None,
+            "label": label,
+            "type": item_type,
+            "brand": brand,
+            "model_no": model_no,
+            "serial_no": serial_no,
+            "location": location,
+            "location_2": location_2,
+            "invoice_no": invoice_no,
+            "purchase_date": purchase_date.isoformat() if purchase_date else None,
+            "price": str(price_val) if price_val is not None else None,
+            "maintenance_end_date": maintenance_end_date.isoformat() if maintenance_end_date else None,
+            "status": status
+        }), 200
+
+    except Exception as e:
+        print("Error updating soc_inventory row:", e)
+        return jsonify({"error": "internal_server_error", "details": str(e)}), 500
+
+
+@app.route("/api/items", methods=["POST"])
+def create_item():
+    """Accept JSON body matching soc_inventory columns and insert into DB."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Expected JSON body"}), 400
+
+        # Extract fields according to the new soc_inventory schema
+        date_val = parse_date(data.get('date'))
+        cp_number = data.get('cp_number')
+        project_code = data.get('project_code')
+        sort_code = data.get('sort_code')
+        department = data.get('department')
+        lt1 = data.get('lt1')
+        lt2 = data.get('lt2')
+        user_name = data.get('user_name')
+        port = data.get('port')
+        item = data.get('item')
+        usb_permission = data.get('usb_permission')
+        os_val = data.get('os')
+        mac = data.get('mac')
+        ip = data.get('ip')
+        status = data.get('status')
+        cpu = data.get('cpu')
+        ram = data.get('ram')
+        hd = data.get('hd')
+        soft1 = data.get('soft1')
+        soft2 = data.get('soft2')
+        soft3 = data.get('soft3')
+        unlabeled = data.get('unlabeled')
+        to_be_confirm = data.get('to_be_confirm')
+        company_code = data.get('company_code')
+        description_cpu = data.get('description_cpu')
+        description_hdd_gb = data.get('description_hdd_gb')
+        description_ram_mb = data.get('description_ram_mb')
+        amount = data.get('amount')
+        prn_no = data.get('prn_no')
+        invoice_date = parse_date(data.get('invoice_date'))
+        supplier_name = data.get('supplier_name')
+        remark = data.get('remark')
+        description = data.get('description')
+
+        # Validate cp_number
+        if not cp_number:
+            return jsonify({"error": "'cp_number' is required"}), 400
+
+        if amount in (None, ""):
+            amount_val = None
+        else:
+            try:
+                amount_val = Decimal(str(amount))
+            except (InvalidOperation, ValueError):
+                return jsonify({"error": "'amount' must be a number"}), 400
+
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        insert_q = sql.SQL("""
+            INSERT INTO soc_inventory (
+                date, cp_number, project_code, sort_code, department,
+                lt1, lt2, user_name, port, item, usb_permission, os,
+                mac, ip, status, cpu, ram, hd, soft1, soft2, soft3,
+                unlabeled, to_be_confirm, company_code, description_cpu,
+                description_hdd_gb, description_ram_mb, amount, prn_no,
+                invoice_date, supplier_name, remark, description
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (cp_number) DO UPDATE SET
+                date = EXCLUDED.date,
+                project_code = EXCLUDED.project_code,
+                sort_code = EXCLUDED.sort_code,
+                department = EXCLUDED.department,
+                lt1 = EXCLUDED.lt1,
+                lt2 = EXCLUDED.lt2,
+                user_name = EXCLUDED.user_name,
+                port = EXCLUDED.port,
+                item = EXCLUDED.item,
+                usb_permission = EXCLUDED.usb_permission,
+                os = EXCLUDED.os,
+                mac = EXCLUDED.mac,
+                ip = EXCLUDED.ip,
+                status = EXCLUDED.status,
+                cpu = EXCLUDED.cpu,
+                ram = EXCLUDED.ram,
+                hd = EXCLUDED.hd,
+                soft1 = EXCLUDED.soft1,
+                soft2 = EXCLUDED.soft2,
+                soft3 = EXCLUDED.soft3,
+                unlabeled = EXCLUDED.unlabeled,
+                to_be_confirm = EXCLUDED.to_be_confirm,
+                company_code = EXCLUDED.company_code,
+                description_cpu = EXCLUDED.description_cpu,
+                description_hdd_gb = EXCLUDED.description_hdd_gb,
+                description_ram_mb = EXCLUDED.description_ram_mb,
+                amount = EXCLUDED.amount,
+                prn_no = EXCLUDED.prn_no,
+                invoice_date = EXCLUDED.invoice_date,
+                supplier_name = EXCLUDED.supplier_name,
+                remark = EXCLUDED.remark,
+                description = EXCLUDED.description
+        """)
+
+        cur.execute(insert_q, (
+            date_val, cp_number, project_code, sort_code, department,
+            lt1, lt2, user_name, port, item, usb_permission, os_val,
+            mac, ip, status, cpu, ram, hd, soft1, soft2, soft3,
+            unlabeled, to_be_confirm, company_code, description_cpu,
+            description_hdd_gb, description_ram_mb, amount_val, prn_no,
+            invoice_date, supplier_name, remark, description
+        ))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"message": "Upsert successful", "cp_number": cp_number}), 200
+
+    except Exception as e:
+        print("Error inserting soc_inventory row:", e)
+        return jsonify({"error": "internal_server_error", "details": str(e)}), 500
+
+
+if __name__ == "__main__":
+    # For local development. Use a proper WSGI server in production.
+    app.run(host="0.0.0.0", port=5000, debug=True)
