@@ -99,7 +99,7 @@
   </head>
   <body>
     <div class="nav-links">
-      <a href="/">Add New Item</a>
+      <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
       <a href="/bulk-import">Bulk Import</a>
@@ -119,12 +119,18 @@
               <li>brand</li>
               <li>model_no</li>
               <li>serial_no</li>
+              <li>project_code</li>
+              <li>department</li>
               <li>location</li>
               <li>location_2</li>
+              <li>location_3</li>
               <li>invoice_no</li>
               <li>purchase_date (YYYY-MM-DD)</li>
               <li>price (decimal)</li>
               <li>maintenance_end_date (YYYY-MM-DD)</li>
+              <li>specification1</li>
+              <li>specification2</li>
+              <li>specification3</li>
               <li>status</li>
             </ul>
           </li>
@@ -144,9 +150,9 @@
 
       <div class="sample-template">
         <h3>Sample CSV Template</h3>
-  <pre>record_date,label,type,brand,model_no,serial_no,location,location_2,invoice_no,purchase_date,price,maintenance_end_date,status
-2025-10-23,Asset001,Desktop,Dell,OptiPlex 7090,SN123456,Main Office,Floor 1,INV001,2025-10-01,1200.00,2026-10-01,Active
-2025-10-23,Asset002,Laptop,Lenovo,ThinkPad X1,SN789012,Branch Office,Floor 2,INV002,2025-09-15,1500.00,2026-09-15,Active</pre>
+  <pre>record_date,label,type,brand,model_no,serial_no,project_code,department,location,location_2,location_3,invoice_no,purchase_date,price,maintenance_end_date,specification1,specification2,specification3,status
+2025-10-23,Asset001,Desktop,Dell,OptiPlex 7090,SN123456,PRJ001,IT,Main Office,Floor 1,Room 101,INV001,2025-10-01,1200.00,2026-10-01,16GB RAM,512GB SSD,Intel i7,Active
+2025-10-23,Asset002,Laptop,Lenovo,ThinkPad X1,SN789012,PRJ002,HR,Branch Office,Floor 2,Room 205,INV002,2025-09-15,1500.00,2026-09-15,32GB RAM,1TB SSD,Intel i9,Active</pre>
       </div>
     </div>
 

@@ -112,7 +112,7 @@
   </head>
   <body>
     <div class="nav-links">
-      <a href="/">Add New Item</a>
+      <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
       <a href="/bulk-import">Bulk Import</a>
@@ -199,6 +199,36 @@
           <input type="text" name="location_2" value="{{ request.args.get('location_2', '') }}" placeholder="Search by secondary location">
         </div>
         <div class="form-group">
+          <label>Location 3</label>
+          <input type="text" name="location_3" value="{{ request.args.get('location_3', '') }}" placeholder="Search by tertiary location">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Specification 1</label>
+          <input type="text" name="specification1" value="{{ request.args.get('specification1', '') }}" placeholder="Search by specification 1">
+        </div>
+        <div class="form-group">
+          <label>Specification 2</label>
+          <input type="text" name="specification2" value="{{ request.args.get('specification2', '') }}" placeholder="Search by specification 2">
+        </div>
+        <div class="form-group">
+          <label>Specification 3</label>
+          <input type="text" name="specification3" value="{{ request.args.get('specification3', '') }}" placeholder="Search by specification 3">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Project Code</label>
+          <input type="text" name="project_code" value="{{ request.args.get('project_code', '') }}" placeholder="Search by project code">
+        </div>
+        <div class="form-group">
+          <label>Department</label>
+          <input type="text" name="department" value="{{ request.args.get('department', '') }}" placeholder="Search by department">
+        </div>
+        <div class="form-group">
           <label>Status</label>
           <input type="text" name="status" value="{{ request.args.get('status', '') }}" placeholder="Search by status">
         </div>
@@ -224,6 +254,11 @@
               <th>Model</th>
               <th>Serial No</th>
               <th>Location</th>
+              <th>Location 2</th>
+              <th>Location 3</th>
+              <th>Spec 1</th>
+              <th>Spec 2</th>
+              <th>Spec 3</th>
               <th>Status</th>
               <th>Last Updated</th>
               <th>Actions</th>
@@ -237,7 +272,12 @@
                 <td>{{ item.brand }}</td>
                 <td>{{ item.model_no }}</td>
                 <td>{{ item.serial_no }}</td>
-                <td>{{ item.location }}{% if item.location_2 %} / {{ item.location_2 }}{% endif %}</td>
+                <td>{{ item.location }}</td>
+                <td>{{ item.location_2 }}</td>
+                <td>{{ item.location_3 }}</td>
+                <td>{{ item.specification1 }}</td>
+                <td>{{ item.specification2 }}</td>
+                <td>{{ item.specification3 }}</td>
                 <td>{{ item.status }}</td>
                 <td title="Created: {{ item.created_at }}">{{ item.updated_at }}</td>
                 <td>
