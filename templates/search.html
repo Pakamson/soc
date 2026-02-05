@@ -213,10 +213,29 @@
         padding: 8px 12px;
         font-weight: bold;
       }
+      .sortable {
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        padding-right: 20px;
+      }
+      .sortable:hover {
+        background: #e8e8e8;
+      }
+      .sort-indicator {
+        position: absolute;
+        right: 4px;
+        font-size: 0.8em;
+        color: #666;
+      }
+      .sort-indicator.active {
+        color: #0066cc;
+      }
     </style>
   </head>
   <body>
     <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
       <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
@@ -244,18 +263,90 @@
         <table>
           <thead>
             <tr>
-              <th>Label</th>
-              <th>Type</th>
-              <th>Brand</th>
-              <th>Model</th>
-              <th>Serial No</th>
-              <th>Spec 1</th>
-              <th>Spec 2</th>
-              <th>Spec 3</th>
-              <th>Project</th>
-              <th>Department</th>
-              <th>Status</th>
-              <th>Last Updated</th>
+              <th class="sortable" onclick="sortTable('record_date')">
+                Record Date
+                <span class="sort-indicator {% if sort_by == 'record_date' %}active{% endif %}">
+                  {% if sort_by == 'record_date' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('label')">
+                Label
+                <span class="sort-indicator {% if sort_by == 'label' %}active{% endif %}">
+                  {% if sort_by == 'label' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('type')">
+                Type
+                <span class="sort-indicator {% if sort_by == 'type' %}active{% endif %}">
+                  {% if sort_by == 'type' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('brand')">
+                Brand
+                <span class="sort-indicator {% if sort_by == 'brand' %}active{% endif %}">
+                  {% if sort_by == 'brand' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('vendor')">
+                Vendor
+                <span class="sort-indicator {% if sort_by == 'vendor' %}active{% endif %}">
+                  {% if sort_by == 'vendor' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('model_no')">
+                Model
+                <span class="sort-indicator {% if sort_by == 'model_no' %}active{% endif %}">
+                  {% if sort_by == 'model_no' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('serial_no')">
+                Serial No
+                <span class="sort-indicator {% if sort_by == 'serial_no' %}active{% endif %}">
+                  {% if sort_by == 'serial_no' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('specification1')">
+                Spec 1
+                <span class="sort-indicator {% if sort_by == 'specification1' %}active{% endif %}">
+                  {% if sort_by == 'specification1' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('specification2')">
+                Spec 2
+                <span class="sort-indicator {% if sort_by == 'specification2' %}active{% endif %}">
+                  {% if sort_by == 'specification2' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('specification3')">
+                Spec 3
+                <span class="sort-indicator {% if sort_by == 'specification3' %}active{% endif %}">
+                  {% if sort_by == 'specification3' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('project_code')">
+                Project
+                <span class="sort-indicator {% if sort_by == 'project_code' %}active{% endif %}">
+                  {% if sort_by == 'project_code' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('department')">
+                Department
+                <span class="sort-indicator {% if sort_by == 'department' %}active{% endif %}">
+                  {% if sort_by == 'department' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('status')">
+                Status
+                <span class="sort-indicator {% if sort_by == 'status' %}active{% endif %}">
+                  {% if sort_by == 'status' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
+              <th class="sortable" onclick="sortTable('updated_at')">
+                Last Updated
+                <span class="sort-indicator {% if sort_by == 'updated_at' %}active{% endif %}">
+                  {% if sort_by == 'updated_at' %}{{ '▲' if sort_order == 'asc' else '▼' }}{% else %}⇅{% endif %}
+                </span>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -266,6 +357,7 @@
                   data-label="{{ item.label }}"
                   data-type="{{ item.type }}"
                   data-brand="{{ item.brand }}"
+                  data-vendor="{{ item.vendor }}"
                   data-model-no="{{ item.model_no }}"
                   data-serial-no="{{ item.serial_no }}"
                   data-location="{{ item.location }}"
@@ -282,10 +374,13 @@
                   data-department="{{ item.department }}"
                   data-status="{{ item.status }}"
                   data-created-at="{{ item.created_at }}"
-                  data-updated-at="{{ item.updated_at }}">
+                  data-updated-at="{{ item.updated_at }}"
+                  data-updated-by="{{ item.updated_by }}">
+                <td>{{ item.record_date }}</td>
                 <td>{{ item.label }}</td>
                 <td>{{ item.type }}</td>
                 <td>{{ item.brand }}</td>
+                <td>{{ item.vendor }}</td>
                 <td>{{ item.model_no }}</td>
                 <td>{{ item.serial_no }}</td>
                 <td>{{ item.specification1 }}</td>
@@ -302,7 +397,7 @@
                 </td>
               </tr>
               <tr id="edit-form-{{ loop.index }}" style="display: none;">
-                <td colspan="14">
+                <td colspan="15">
                   <form class="edit-form" onsubmit="updateItem(event, {{ loop.index }})">
                     <div class="form-row">
                       <div class="form-group">
@@ -324,15 +419,20 @@
                         <input type="text" name="brand" value="{{ item.brand }}" maxlength="100">
                       </div>
                       <div class="form-group">
+                        <label>Vendor</label>
+                        <input type="text" name="vendor" value="{{ item.vendor }}" maxlength="100">
+                      </div>
+                      <div class="form-group">
                         <label>Model No</label>
                         <input type="text" name="model_no" value="{{ item.model_no }}" maxlength="100">
                       </div>
+                    </div>
+                    <div class="form-row">
                       <div class="form-group">
                         <label>Serial No</label>
                         <input type="text" name="serial_no" value="{{ item.serial_no }}" maxlength="100">
+                        <input type="hidden" name="original_serial_no" value="{{ item.serial_no }}">
                       </div>
-                    </div>
-                    <div class="form-row">
                       <div class="form-group">
                         <label>Location</label>
                         <input type="text" name="location" value="{{ item.location }}" maxlength="100">
@@ -341,6 +441,8 @@
                         <label>Location 2</label>
                         <input type="text" name="location_2" value="{{ item.location_2 }}" maxlength="100">
                       </div>
+                    </div>
+                    <div class="form-row">
                       <div class="form-group">
                         <label>Location 3</label>
                         <input type="text" name="location_3" value="{{ item.location_3 }}" maxlength="100">
@@ -444,27 +546,29 @@
         if (!row) return;
         
         const data = {
-          'Record Date': row.dataset.recordDate || 'N/A',
-          'Label': row.dataset.label || 'N/A',
-          'Type': row.dataset.type || 'N/A',
-          'Brand': row.dataset.brand || 'N/A',
-          'Model No': row.dataset.modelNo || 'N/A',
-          'Serial No': row.dataset.serialNo || 'N/A',
-          'Location': row.dataset.location || 'N/A',
-          'Location 2': row.dataset.location2 || 'N/A',
-          'Location 3': row.dataset.location3 || 'N/A',
-          'Invoice No': row.dataset.invoiceNo || 'N/A',
-          'Purchase Date': row.dataset.purchaseDate || 'N/A',
-          'Price': row.dataset.price || 'N/A',
-          'Maintenance End Date': row.dataset.maintenanceEndDate || 'N/A',
-          'Specification 1': row.dataset.specification1 || 'N/A',
-          'Specification 2': row.dataset.specification2 || 'N/A',
-          'Specification 3': row.dataset.specification3 || 'N/A',
-          'Project Code': row.dataset.projectCode || 'N/A',
-          'Department': row.dataset.department || 'N/A',
-          'Status': row.dataset.status || 'N/A',
-          'Created At': row.dataset.createdAt || 'N/A',
-          'Updated At': row.dataset.updatedAt || 'N/A'
+          'Record Date': row.getAttribute('data-record-date') || row.dataset.recordDate || 'N/A',
+          'Label': row.getAttribute('data-label') || row.dataset.label || 'N/A',
+          'Type': row.getAttribute('data-type') || row.dataset.type || 'N/A',
+          'Brand': row.getAttribute('data-brand') || row.dataset.brand || 'N/A',
+          'Vendor': row.getAttribute('data-vendor') || row.dataset.vendor || 'N/A',
+          'Model No': row.getAttribute('data-model-no') || row.dataset.modelNo || 'N/A',
+          'Serial No': row.getAttribute('data-serial-no') || row.dataset.serialNo || 'N/A',
+          'Location': row.getAttribute('data-location') || row.dataset.location || 'N/A',
+          'Location 2': row.getAttribute('data-location-2') || row.dataset.location2 || 'N/A',
+          'Location 3': row.getAttribute('data-location-3') || row.dataset.location3 || 'N/A',
+          'Invoice No': row.getAttribute('data-invoice-no') || row.dataset.invoiceNo || 'N/A',
+          'Purchase Date': row.getAttribute('data-purchase-date') || row.dataset.purchaseDate || 'N/A',
+          'Price': row.getAttribute('data-price') || row.dataset.price || 'N/A',
+          'Maintenance End Date': row.getAttribute('data-maintenance-end-date') || row.dataset.maintenanceEndDate || 'N/A',
+          'Specification 1': row.getAttribute('data-specification1') || row.dataset.specification1 || 'N/A',
+          'Specification 2': row.getAttribute('data-specification2') || row.dataset.specification2 || 'N/A',
+          'Specification 3': row.getAttribute('data-specification3') || row.dataset.specification3 || 'N/A',
+          'Project Code': row.getAttribute('data-project-code') || row.dataset.projectCode || 'N/A',
+          'Department': row.getAttribute('data-department') || row.dataset.department || 'N/A',
+          'Status': row.getAttribute('data-status') || row.dataset.status || 'N/A',
+          'Created At': row.getAttribute('data-created-at') || row.dataset.createdAt || 'N/A',
+          'Updated At': row.getAttribute('data-updated-at') || row.dataset.updatedAt || 'N/A',
+          'Updated By': row.getAttribute('data-updated-by') || row.dataset.updatedBy || 'N/A'
         };
         
         const detailContent = document.getElementById('detailContent');
@@ -472,7 +576,7 @@
         
         // Basic Information Section
         detailContent.innerHTML += '<div class="detail-section">Basic Information</div>';
-        ['Record Date', 'Label', 'Type', 'Brand', 'Model No', 'Serial No'].forEach(key => {
+        ['Record Date', 'Label', 'Type', 'Brand', 'Vendor', 'Model No', 'Serial No'].forEach(key => {
           detailContent.innerHTML += `
             <div class="detail-label">${key}:</div>
             <div class="detail-value">${data[key]}</div>
@@ -517,7 +621,7 @@
         
         // Timestamps Section
         detailContent.innerHTML += '<div class="detail-section">Timestamps</div>';
-        ['Created At', 'Updated At'].forEach(key => {
+        ['Created At', 'Updated At', 'Updated By'].forEach(key => {
           detailContent.innerHTML += `
             <div class="detail-label">${key}:</div>
             <div class="detail-value">${data[key]}</div>
@@ -539,12 +643,35 @@
         }
       }
       
+      // Sorting function
+      function sortTable(column) {
+        const url = new URL(window.location.href);
+        const currentSort = url.searchParams.get('sort') || 'updated_at';
+        const currentOrder = url.searchParams.get('order') || 'desc';
+        
+        // Toggle order if clicking same column, otherwise default to asc
+        let newOrder = 'asc';
+        if (currentSort === column) {
+          newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+        }
+        
+        url.searchParams.set('sort', column);
+        url.searchParams.set('order', newOrder);
+        url.searchParams.set('page', '1'); // Reset to first page when sorting
+        window.location.href = url.toString();
+      }
+      
       // Pagination function
       function goToPage(pageNum) {
         const searchQuery = document.getElementById('searchInput').value;
         const url = new URL(window.location.href);
         url.searchParams.set('q', searchQuery);
         url.searchParams.set('page', pageNum);
+        // Maintain current sort state
+        const currentSort = url.searchParams.get('sort');
+        const currentOrder = url.searchParams.get('order');
+        if (currentSort) url.searchParams.set('sort', currentSort);
+        if (currentOrder) url.searchParams.set('order', currentOrder);
         window.location.href = url.toString();
       }
       
@@ -626,8 +753,11 @@
           payload[key] = value.trim() || null;
         }
 
+        // Use original serial number for URL path to identify row
+        const originalSerial = form.querySelector('input[name="original_serial_no"]').value;
+
         try {
-          const res = await fetch(`/api/items/${id}`, {
+          const res = await fetch(`/api/items/${encodeURIComponent(originalSerial)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)

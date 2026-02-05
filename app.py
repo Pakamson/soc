@@ -20,13 +20,26 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key')
 
 
 def parse_date(d):
+    """Parse a date from several common formats to a date object.
+
+    Supported input formats:
+    - YYYY-MM-DD (e.g., 2025-11-17)
+    - DD/MM/YYYY (e.g., 17/11/2025)
+    - DD-MM-YYYY (e.g., 17-11-2025)
+    Returns None if parsing fails or input is empty.
+    """
     if not d:
         return None
     if isinstance(d, str):
-        try:
-            return datetime.strptime(d, "%Y-%m-%d").date()
-        except Exception:
+        s = d.strip()
+        if not s:
             return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
     if isinstance(d, datetime):
         return d.date()
     return None
@@ -101,7 +114,53 @@ def login():
     except Exception:
         pass
 
-    return redirect(url_for('search'))
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/dashboard')
+def dashboard():
+    """Dashboard showing inventory statistics by type"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor(cursor_factory=DictCursor)
+        
+        # Get count by type
+        cur.execute("""
+            SELECT type, COUNT(*) as count
+            FROM soc_inventory
+            WHERE type IS NOT NULL AND type != ''
+            GROUP BY type
+            ORDER BY count DESC, type
+        """)
+        type_stats = [dict(row) for row in cur.fetchall()]
+        
+        # Get total count
+        cur.execute("SELECT COUNT(*) as total FROM soc_inventory")
+        total_count = cur.fetchone()['total']
+        
+        # Get recent updates
+        cur.execute("""
+            SELECT serial_no, label, type, brand, updated_at
+            FROM soc_inventory
+            ORDER BY updated_at DESC
+            LIMIT 10
+        """)
+        recent_items = [dict(row) for row in cur.fetchall()]
+        
+        cur.close()
+        conn.close()
+        
+        return render_template('dashboard.html', 
+                             type_stats=type_stats, 
+                             total_count=total_count,
+                             recent_items=recent_items)
+    except Exception as e:
+        print("Error loading dashboard:", e)
+        return render_template('dashboard.html', 
+                             type_stats=[], 
+                             total_count=0,
+                             recent_items=[],
+                             error=str(e))
 
 
 @app.route('/logout')
@@ -201,17 +260,18 @@ def bulk_import():
 @app.route("/advanced-search")
 def advanced_search():
     params = {
-        'record_date_start': request.args.get('record_date_start'),
-        'record_date_end': request.args.get('record_date_end'),
-        'purchase_date_start': request.args.get('purchase_date_start'),
-        'purchase_date_end': request.args.get('purchase_date_end'),
-        'maintenance_date_start': request.args.get('maintenance_date_start'),
-        'maintenance_date_end': request.args.get('maintenance_date_end'),
-        'price_min': request.args.get('price_min'),
-        'price_max': request.args.get('price_max'),
+        'record_date_start': request.args.get('record_date_start', '').strip(),
+        'record_date_end': request.args.get('record_date_end', '').strip(),
+        'purchase_date_start': request.args.get('purchase_date_start', '').strip(),
+        'purchase_date_end': request.args.get('purchase_date_end', '').strip(),
+        'maintenance_date_start': request.args.get('maintenance_date_start', '').strip(),
+        'maintenance_date_end': request.args.get('maintenance_date_end', '').strip(),
+        'price_min': request.args.get('price_min', '').strip(),
+        'price_max': request.args.get('price_max', '').strip(),
         'label': request.args.get('label', '').strip(),
         'type': request.args.get('type', '').strip(),
         'brand': request.args.get('brand', '').strip(),
+        'vendor': request.args.get('vendor', '').strip(),
         'model_no': request.args.get('model_no', '').strip(),
         'serial_no': request.args.get('serial_no', '').strip(),
         'location': request.args.get('location', '').strip(),
@@ -226,7 +286,7 @@ def advanced_search():
         'status': request.args.get('status', '').strip(),
     }
 
-    search_performed = any(v for v in params.values() if v)
+    search_performed = any(v for v in params.values() if v and v.strip())
     items = []
 
     if search_performed:
@@ -265,7 +325,7 @@ def advanced_search():
                 conditions.append("price <= %s")
                 query_params.append(Decimal(params['price_max']))
 
-            text_fields = ['label', 'type', 'brand', 'model_no', 'serial_no', 'location', 'location_2', 'location_3', 'invoice_no', 'specification1', 'specification2', 'specification3', 'project_code', 'department', 'status']
+            text_fields = ['label', 'type', 'brand', 'vendor', 'model_no', 'serial_no', 'location', 'location_2', 'location_3', 'invoice_no', 'specification1', 'specification2', 'specification3', 'project_code', 'department', 'status']
             for field in text_fields:
                 if params[field]:
                     conditions.append(f"{field} ILIKE %s")
@@ -292,31 +352,34 @@ def advanced_search():
 @app.route("/api/items/import-csv", methods=["POST"])
 def import_csv():
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
+        # Accept either file upload or text field
+        csv_text = request.form.get('csv_text', '').strip()
+        file = request.files.get('file')
 
-        file = request.files['file']
-        if not file or not file.filename.lower().endswith('.csv'):
-            return jsonify({"error": "Invalid file. Please provide a CSV file"}), 400
+        if not file and not csv_text:
+            return jsonify({"error": "No CSV file or text provided"}), 400
 
-        raw = file.stream.read()
-        try:
-            text = raw.decode('utf-8-sig')
-        except Exception:
-            text = raw.decode('utf-8', errors='replace')
+        if file:
+            raw = file.stream.read()
+            try:
+                text = raw.decode('utf-8-sig')
+            except Exception:
+                text = raw.decode('utf-8', errors='replace')
+        else:
+            text = csv_text
 
         stream = StringIO(text, newline=None)
         reader = csv.DictReader(stream)
 
         if not reader.fieldnames:
-            return jsonify({"error": "CSV file has no header row"}), 400
+            return jsonify({"error": "CSV has no header row"}), 400
 
         normalized_fieldnames = [h.strip().lower() for h in reader.fieldnames if h]
         headers_set = set(normalized_fieldnames)
 
         # Verify that required headers exist
         expected_headers = {
-            'record_date', 'label', 'type', 'brand', 'model_no', 'serial_no',
+            'record_date', 'label', 'type', 'brand', 'vendor', 'model_no', 'serial_no',
             'location', 'location_2', 'location_3', 'invoice_no', 'purchase_date', 'price',
             'maintenance_end_date', 'specification1', 'specification2', 'specification3', 
             'project_code', 'department', 'status'
@@ -326,6 +389,9 @@ def import_csv():
             return jsonify({
                 "error": f"CSV missing required headers: {', '.join(sorted(missing_headers))}"
             }), 400
+
+        # Get current user from session
+        updated_by = session.get('username', 'anonymous')
 
         conn = get_db_conn()
         cur = conn.cursor()
@@ -339,6 +405,7 @@ def import_csv():
                 label = row.get('label')
                 item_type = row.get('type')
                 brand = row.get('brand')
+                vendor = row.get('vendor')
                 model_no = row.get('model_no')
                 serial_no = row.get('serial_no')
                 location = row.get('location')
@@ -360,20 +427,25 @@ def import_csv():
                     except (InvalidOperation, ValueError):
                         continue
 
-                # Upsert by serial_no if provided, otherwise insert
+                # Skip rows without serial_no
+                if not serial_no or not serial_no.strip():
+                    continue
+
+                # Upsert by serial_no
                 if serial_no:
                     upsert_q = sql.SQL("""
                         INSERT INTO soc_inventory (
-                            record_date, label, type, brand, model_no, serial_no,
+                            record_date, label, type, brand, vendor, model_no, serial_no,
                             location, location_2, location_3, invoice_no, purchase_date, price,
                             maintenance_end_date, specification1, specification2, specification3,
-                            project_code, department, status
-                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            project_code, department, status, updated_by
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (serial_no) DO UPDATE SET
                           record_date = EXCLUDED.record_date,
                           label = EXCLUDED.label,
                           type = EXCLUDED.type,
                           brand = EXCLUDED.brand,
+                          vendor = EXCLUDED.vendor,
                           model_no = EXCLUDED.model_no,
                           location = EXCLUDED.location,
                           location_2 = EXCLUDED.location_2,
@@ -387,33 +459,18 @@ def import_csv():
                           specification3 = EXCLUDED.specification3,
                           project_code = EXCLUDED.project_code,
                           department = EXCLUDED.department,
-                          status = EXCLUDED.status
+                          status = EXCLUDED.status,
+                          updated_by = EXCLUDED.updated_by
                     """)
 
                     cur.execute(upsert_q, (
-                        record_date, label, item_type, brand, model_no, serial_no,
+                        record_date, label, item_type, brand, vendor, model_no, serial_no,
                         location, location_2, location_3, invoice_no, purchase_date, price_val,
                         maintenance_end_date, specification1, specification2, specification3,
-                        row.get('project_code'), row.get('department'), status
-                    ))
-                else:
-                    # Insert including the new location_3 and specification fields
-                    insert_q = sql.SQL("""
-                        INSERT INTO soc_inventory (
-                            record_date, label, type, brand, model_no, location,
-                            location_2, location_3, invoice_no, purchase_date, price,
-                            maintenance_end_date, specification1, specification2, specification3,
-                            project_code, department, status
-                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """)
-                    cur.execute(insert_q, (
-                        record_date, label, item_type, brand, model_no, location,
-                        location_2, location_3, invoice_no, purchase_date, price_val,
-                        maintenance_end_date, specification1, specification2, specification3,
-                        row.get('project_code'), row.get('department'), status
+                        row.get('project_code'), row.get('department'), status, updated_by
                     ))
 
-                imported += 1
+                    imported += 1
             except Exception as e:
                 print(f"Error importing row: {e}")
                 continue
@@ -437,22 +494,22 @@ def export_csv():
 
         # Special case: "*" exports all items
         if search_query == "*":
-            cur.execute("SELECT * FROM soc_inventory ORDER BY record_date DESC, label, type")
+            cur.execute("SELECT * FROM soc_inventory ORDER BY updated_at DESC, label, type")
         elif search_query:
             search_sql = sql.SQL("""
                 SELECT *
                 FROM soc_inventory
-                WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s
+                WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s OR vendor ILIKE %s
                   OR model_no ILIKE %s OR serial_no ILIKE %s OR location ILIKE %s
                   OR location_2 ILIKE %s OR invoice_no ILIKE %s OR status ILIKE %s
                   OR project_code ILIKE %s OR department ILIKE %s
-                ORDER BY record_date DESC, label, type
+                ORDER BY updated_at DESC, label, type
             """)
             sp = f"{search_query}%"
-            # SQL has 11 placeholders (label,type,brand,model_no,serial_no,location,location_2,invoice_no,status,project_code,department)
-            cur.execute(search_sql, [sp] * 11)
+            # SQL has 12 placeholders (label,type,brand,vendor,model_no,serial_no,location,location_2,invoice_no,status,project_code,department)
+            cur.execute(search_sql, [sp] * 12)
         else:
-            cur.execute("SELECT * FROM soc_inventory ORDER BY label, type, brand")
+            cur.execute("SELECT * FROM soc_inventory ORDER BY updated_at DESC, label, type, brand")
 
         items = [dict(row) for row in cur.fetchall()]
         cur.close()
@@ -478,8 +535,24 @@ def export_csv():
 def search():
     search_query = request.args.get('q', '').strip()
     page = request.args.get('page', 1, type=int)
+    sort_by = request.args.get('sort', 'updated_at')
+    sort_order = request.args.get('order', 'desc')
     per_page = 50
     offset = (page - 1) * per_page
+    
+    # Validate sort column to prevent SQL injection
+    valid_sort_columns = ['record_date', 'label', 'type', 'brand', 'vendor', 'model_no', 'serial_no', 
+                          'location', 'location_2', 'location_3', 'invoice_no', 'purchase_date', 'price',
+                          'maintenance_end_date', 'specification1', 'specification2', 'specification3',
+                          'project_code', 'department', 'status', 'updated_at', 'created_at']
+    if sort_by not in valid_sort_columns:
+        sort_by = 'updated_at'
+    
+    # Validate sort order
+    if sort_order.lower() not in ['asc', 'desc']:
+        sort_order = 'desc'
+    
+    order_clause = f"{sort_by} {sort_order.upper()}"
     
     items = []
     total_count = 0
@@ -499,34 +572,34 @@ def search():
                 # Get paginated results
                 search_sql = sql.SQL("""
                     SELECT * FROM soc_inventory
-                    ORDER BY record_date DESC, label, type
+                    ORDER BY {} NULLS LAST
                     LIMIT %s OFFSET %s
-                """)
+                """).format(sql.SQL(order_clause))
                 cur.execute(search_sql, (per_page, offset))
             else:
                 # Get total count for search
                 count_sql = sql.SQL("""
                     SELECT COUNT(*) FROM soc_inventory
-                    WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s
+                    WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s OR vendor ILIKE %s
                       OR model_no ILIKE %s OR serial_no ILIKE %s OR location ILIKE %s
                       OR location_2 ILIKE %s OR invoice_no ILIKE %s OR status ILIKE %s
                       OR project_code ILIKE %s OR department ILIKE %s
                 """)
                 sp = f"{search_query}%"
-                cur.execute(count_sql, [sp] * 11)
+                cur.execute(count_sql, [sp] * 12)
                 total_count = cur.fetchone()[0]
                 
                 # Get paginated results
                 search_sql = sql.SQL("""
                     SELECT * FROM soc_inventory
-                    WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s
+                    WHERE label ILIKE %s OR type ILIKE %s OR brand ILIKE %s OR vendor ILIKE %s
                       OR model_no ILIKE %s OR serial_no ILIKE %s OR location ILIKE %s
                       OR location_2 ILIKE %s OR invoice_no ILIKE %s OR status ILIKE %s
                       OR project_code ILIKE %s OR department ILIKE %s
-                    ORDER BY record_date DESC, label, type
+                    ORDER BY {} NULLS LAST
                     LIMIT %s OFFSET %s
-                """)
-                cur.execute(search_sql, [sp] * 11 + [per_page, offset])
+                """).format(sql.SQL(order_clause))
+                cur.execute(search_sql, [sp] * 12 + [per_page, offset])
             
             items = [dict(row) for row in cur.fetchall()]
             cur.close()
@@ -538,22 +611,28 @@ def search():
     
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
     return render_template("search.html", items=items, search_performed=search_performed, 
-                         page=page, total_count=total_count, total_pages=total_pages, per_page=per_page)
+                         page=page, total_count=total_count, total_pages=total_pages, per_page=per_page,
+                         sort_by=sort_by, sort_order=sort_order)
 
 
-@app.route("/api/items/<int:item_id>", methods=["PUT"])
-def update_item(item_id):
+@app.route("/api/items/<serial_no_original>", methods=["PUT"])
+def update_item(serial_no_original):
+    """Update an inventory item identified by its original serial number.
+    Allows changing the serial number itself (unique key) and all other fields.
+    """
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Expected JSON body"}), 400
 
+        serial_no_new = data.get("serial_no") or serial_no_original
+
         record_date = parse_date(data.get("record_date"))
         label = data.get("label")
         item_type = data.get("type")
         brand = data.get("brand")
+        vendor = data.get("vendor")
         model_no = data.get("model_no")
-        serial_no = data.get("serial_no")
         location = data.get("location")
         location_2 = data.get("location_2")
         location_3 = data.get("location_3")
@@ -574,6 +653,9 @@ def update_item(item_id):
         project_code = data.get("project_code")
         department = data.get("department")
         status = data.get("status")
+        
+        # Get current user from session
+        updated_by = session.get('username', 'anonymous')
 
         conn = get_db_conn()
         cur = conn.cursor()
@@ -583,6 +665,7 @@ def update_item(item_id):
                 label = %s,
                 type = %s,
                 brand = %s,
+                vendor = %s,
                 model_no = %s,
                 serial_no = %s,
                 location = %s,
@@ -597,24 +680,27 @@ def update_item(item_id):
                 specification3 = %s,
                 project_code = %s,
                 department = %s,
-                status = %s
+                status = %s,
+                updated_by = %s
             WHERE serial_no = %s
             RETURNING serial_no
         """)
         cur.execute(update_q, (
-            record_date, label, item_type, brand, model_no, serial_no,
+            record_date, label, item_type, brand, vendor, model_no, serial_no_new,
             location, location_2, location_3, invoice_no, purchase_date, price_val,
             maintenance_end_date, specification1, specification2, specification3,
-            project_code, department, status, serial_no
+            project_code, department, status, updated_by, serial_no_original
         ))
         updated = cur.fetchone()
         if not updated:
             conn.rollback()
+            cur.close()
+            conn.close()
             return jsonify({"error": "Item not found"}), 404
         conn.commit()
         cur.close()
         conn.close()
-        return jsonify({"message": "Item saved successfully", "serial_no": serial_no}), 200
+        return jsonify({"message": "Item saved successfully", "serial_no": serial_no_new}), 200
     except Exception as e:
         print("Error updating soc_inventory row:", e)
         return jsonify({"error": "internal_server_error", "details": str(e)}), 500
@@ -661,6 +747,7 @@ def create_item():
         label = data.get("label")
         item_type = data.get("type")
         brand = data.get("brand")
+        vendor = data.get("vendor")
         model_no = data.get("model_no")
         serial_no = data.get("serial_no")
         location = data.get("location")
@@ -681,6 +768,11 @@ def create_item():
         specification2 = data.get("specification2")
         specification3 = data.get("specification3")
         status = data.get("status")
+        project_code = data.get("project_code")
+        department = data.get("department")
+        
+        # Get current user from session
+        updated_by = session.get('username', 'anonymous')
 
         conn = get_db_conn()
         cur = conn.cursor()
@@ -688,16 +780,17 @@ def create_item():
         if serial_no:
             q = sql.SQL("""
                 INSERT INTO soc_inventory (
-                    record_date, label, type, brand, model_no, serial_no,
+                    record_date, label, type, brand, vendor, model_no, serial_no,
                     location, location_2, location_3, invoice_no, purchase_date, price,
                     maintenance_end_date, specification1, specification2, specification3,
-                    project_code, department, status
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    project_code, department, status, updated_by
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (serial_no) DO UPDATE SET
                     record_date = EXCLUDED.record_date,
                     label = EXCLUDED.label,
                     type = EXCLUDED.type,
                     brand = EXCLUDED.brand,
+                    vendor = EXCLUDED.vendor,
                     model_no = EXCLUDED.model_no,
                     location = EXCLUDED.location,
                     location_2 = EXCLUDED.location_2,
@@ -711,28 +804,29 @@ def create_item():
                     specification3 = EXCLUDED.specification3,
                     project_code = EXCLUDED.project_code,
                     department = EXCLUDED.department,
-                    status = EXCLUDED.status
+                    status = EXCLUDED.status,
+                    updated_by = EXCLUDED.updated_by
             """)
             cur.execute(q, (
-                record_date, label, item_type, brand, model_no, serial_no,
+                record_date, label, item_type, brand, vendor, model_no, serial_no,
                 location, location_2, location_3, invoice_no, purchase_date, price_val,
                 maintenance_end_date, specification1, specification2, specification3,
-                project_code, department, status
+                project_code, department, status, updated_by
             ))
         else:
             q = sql.SQL("""
                 INSERT INTO soc_inventory (
-                    record_date, label, type, brand, model_no, location,
+                    record_date, label, type, brand, vendor, model_no, location,
                     location_2, location_3, invoice_no, purchase_date, price,
                     maintenance_end_date, specification1, specification2, specification3,
-                    project_code, department, status
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    project_code, department, status, updated_by
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """)
             cur.execute(q, (
-                record_date, label, item_type, brand, model_no, location,
+                record_date, label, item_type, brand, vendor, model_no, location,
                 location_2, location_3, invoice_no, purchase_date, price_val,
                 maintenance_end_date, specification1, specification2, specification3,
-                data.get('project_code'), data.get('department'), status
+                data.get('project_code'), data.get('department'), status, updated_by
             ))
 
         conn.commit()

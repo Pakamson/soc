@@ -99,6 +99,7 @@
   </head>
   <body>
     <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
       <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
@@ -117,6 +118,7 @@
               <li>label</li>
               <li>type</li>
               <li>brand</li>
+              <li>vendor</li>
               <li>model_no</li>
               <li>serial_no</li>
               <li>project_code</li>
@@ -134,25 +136,32 @@
               <li>status</li>
             </ul>
           </li>
-          <li>Dates should be in YYYY-MM-DD format</li>
+          <li>Dates can be in YYYY-MM-DD or DD/MM/YYYY format (DD/MM/YYYY will be converted automatically)</li>
           <li>Price should be a decimal number with up to 2 decimal places</li>
           <li>Empty values are allowed and will be treated as null</li>
+          <li><strong>Important:</strong> Rows without a serial_no will be skipped (not imported)</li>
+          <li>You can import by uploading a CSV file <strong>or</strong> pasting CSV records in the text field below.</li>
         </ul>
       </div>
 
       <div class="import-form">
         <form onsubmit="importCSV(event)">
-          <input type="file" id="csvFile" accept=".csv" required>
-          <button type="submit" class="import-submit-btn">Upload and Import</button>
+          <div style="display: flex; flex-direction: column; gap: 15px; width: 100%">
+            <label for="csvFile">Upload CSV file:</label>
+            <input type="file" id="csvFile" accept=".csv">
+            <label for="csvText">Or paste CSV records below:</label>
+            <textarea id="csvText" rows="8" style="width:100%;font-family:monospace;resize:vertical" placeholder="Paste CSV records here"></textarea>
+            <button type="submit" class="import-submit-btn">Import</button>
+          </div>
         </form>
         <div id="importStatus"></div>
       </div>
 
       <div class="sample-template">
         <h3>Sample CSV Template</h3>
-  <pre>record_date,label,type,brand,model_no,serial_no,project_code,department,location,location_2,location_3,invoice_no,purchase_date,price,maintenance_end_date,specification1,specification2,specification3,status
-2025-10-23,Asset001,Desktop,Dell,OptiPlex 7090,SN123456,PRJ001,IT,Main Office,Floor 1,Room 101,INV001,2025-10-01,1200.00,2026-10-01,16GB RAM,512GB SSD,Intel i7,Active
-2025-10-23,Asset002,Laptop,Lenovo,ThinkPad X1,SN789012,PRJ002,HR,Branch Office,Floor 2,Room 205,INV002,2025-09-15,1500.00,2026-09-15,32GB RAM,1TB SSD,Intel i9,Active</pre>
+  <pre>record_date,label,type,brand,vendor,model_no,serial_no,project_code,department,location,location_2,location_3,invoice_no,purchase_date,price,maintenance_end_date,specification1,specification2,specification3,status
+2025-10-23,Asset001,Desktop,Dell,Dell Inc,OptiPlex 7090,SN123456,PRJ001,IT,Main Office,Floor 1,Room 101,INV001,2025-10-01,1200.00,2026-10-01,16GB RAM,512GB SSD,Intel i7,Active
+2025-10-23,Asset002,Laptop,Lenovo,Lenovo Group,ThinkPad X1,SN789012,PRJ002,HR,Branch Office,Floor 2,Room 205,INV002,2025-09-15,1500.00,2026-09-15,32GB RAM,1TB SSD,Intel i9,Active</pre>
       </div>
     </div>
 
@@ -160,16 +169,23 @@
       async function importCSV(event) {
         event.preventDefault()
         const fileInput = document.getElementById('csvFile')
+        const textInput = document.getElementById('csvText')
         const statusDiv = document.getElementById('importStatus')
         const file = fileInput.files[0]
-        
-        if (!file) {
-          alert('Please select a CSV file to import')
+        const csvText = textInput.value.trim()
+
+        if (!file && !csvText) {
+          alert('Please select a CSV file or paste CSV records in the text field')
           return
         }
 
         const formData = new FormData()
-        formData.append('file', file)
+        if (file) {
+          formData.append('file', file)
+        }
+        if (csvText) {
+          formData.append('csv_text', csvText)
+        }
 
         statusDiv.className = ''
         statusDiv.style.display = 'block'
@@ -186,11 +202,11 @@
           if (response.ok) {
             statusDiv.className = 'success'
             statusDiv.textContent = `Successfully imported ${result.imported} items`
-            // Clear the file input
             fileInput.value = ''
+            textInput.value = ''
           } else {
             statusDiv.className = 'error'
-            statusDiv.textContent = result.error || 'Failed to import CSV file'
+            statusDiv.textContent = result.error || 'Failed to import CSV file or text'
           }
         } catch (err) {
           statusDiv.className = 'error'

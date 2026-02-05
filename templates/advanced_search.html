@@ -112,6 +112,7 @@
   </head>
   <body>
     <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
       <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
@@ -176,6 +177,10 @@
 
       <div class="form-row">
         <div class="form-group">
+          <label>Vendor</label>
+          <input type="text" name="vendor" value="{{ request.args.get('vendor', '') }}" placeholder="Search by vendor">
+        </div>
+        <div class="form-group">
           <label>Model No</label>
           <input type="text" name="model_no" value="{{ request.args.get('model_no', '') }}" placeholder="Search by model number">
         </div>
@@ -183,16 +188,12 @@
           <label>Serial No</label>
           <input type="text" name="serial_no" value="{{ request.args.get('serial_no', '') }}" placeholder="Search by serial number">
         </div>
-        <div class="form-group">
-          <label>Invoice No</label>
-          <input type="text" name="invoice_no" value="{{ request.args.get('invoice_no', '') }}" placeholder="Search by invoice number">
-        </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>Location</label>
-          <input type="text" name="location" value="{{ request.args.get('location', '') }}" placeholder="Search by location">
+          <label>Invoice No</label>
+          <input type="text" name="invoice_no" value="{{ request.args.get('invoice_no', '') }}" placeholder="Search by invoice number">
         </div>
         <div class="form-group">
           <label>Location 2</label>
@@ -251,6 +252,7 @@
               <th>Label</th>
               <th>Type</th>
               <th>Brand</th>
+              <th>Vendor</th>
               <th>Model</th>
               <th>Serial No</th>
               <th>Location</th>
@@ -270,6 +272,7 @@
                 <td>{{ item.label }}</td>
                 <td>{{ item.type }}</td>
                 <td>{{ item.brand }}</td>
+                <td>{{ item.vendor }}</td>
                 <td>{{ item.model_no }}</td>
                 <td>{{ item.serial_no }}</td>
                 <td>{{ item.location }}</td>
@@ -285,7 +288,7 @@
                 </td>
               </tr>
               <tr id="edit-form-{{ loop.index }}" style="display: none;">
-                <td colspan="9">
+                <td colspan="15">
                   <form class="edit-form" onsubmit="updateItem(event, {{ loop.index }})">
                     <div class="form-row">
                       <div class="form-group">
@@ -307,15 +310,19 @@
                         <input type="text" name="brand" value="{{ item.brand }}" maxlength="100">
                       </div>
                       <div class="form-group">
+                        <label>Vendor</label>
+                        <input type="text" name="vendor" value="{{ item.vendor }}" maxlength="100">
+                      </div>
+                      <div class="form-group">
                         <label>Model No</label>
                         <input type="text" name="model_no" value="{{ item.model_no }}" maxlength="100">
                       </div>
+                    </div>
+                    <div class="form-row">
                       <div class="form-group">
                         <label>Serial No</label>
                         <input type="text" name="serial_no" value="{{ item.serial_no }}" maxlength="100">
                       </div>
-                    </div>
-                    <div class="form-row">
                       <div class="form-group">
                         <label>Location</label>
                         <input type="text" name="location" value="{{ item.location }}" maxlength="100">

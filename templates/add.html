@@ -28,6 +28,7 @@
   </head>
   <body>
     <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
       <a href="/add">Add New Item</a>
       <a href="/search">Quick Search</a>
       <a href="/advanced-search">Advanced Search</a>
@@ -50,6 +51,9 @@
 
           <label for="brand">Brand</label>
           <input id="brand" name="brand" maxlength="100" />
+
+          <label for="vendor">Vendor</label>
+          <input id="vendor" name="vendor" maxlength="100" />
 
           <label for="model_no">Model Number</label>
           <input id="model_no" name="model_no" maxlength="100" />
@@ -121,6 +125,7 @@
           label: document.getElementById('label').value.trim() || null,
           type: document.getElementById('type').value.trim() || null,
           brand: document.getElementById('brand').value.trim() || null,
+          vendor: document.getElementById('vendor').value.trim() || null,
           model_no: document.getElementById('model_no').value.trim() || null,
           serial_no: document.getElementById('serial_no').value.trim() || null,
           project_code: document.getElementById('project_code').value.trim() || null,
